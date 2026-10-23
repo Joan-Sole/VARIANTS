@@ -1,0 +1,8 @@
+
+
+Ctrl-X a  Switch agent_cycle
+Ctrl-X l  Session list
+Ctrl-X m  Models list
+
+txat Parkod_declin = opencode -s ses_f0c1b204cffe0crqEQ5gERBhaP
+

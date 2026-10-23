@@ -1,0 +1,28 @@
+# Python virtual environment
+.venv/
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Logs
+logs/
+*.log
+
+# VS Code settings (optional)
+#.vscode/
+
+# Pytest cache
+.pytest_cache/
+
+# Coverage reports
+#.coverage
+#htmlcov/
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+# others
+data/
+install/

@@ -1,0 +1,15 @@
+USE [parkod]
+GO
+
+SET ANSI_NULLS ON
+GO
+
+SET QUOTED_IDENTIFIER ON
+GO
+
+CREATE TABLE [dbo].[DEPARTEM](
+	[CDEP] [varchar](2) NULL
+	[LIBDEP] [varchar](20) NULL
+) ON [PRIMARY]
+GO
+

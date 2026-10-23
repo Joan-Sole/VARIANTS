@@ -1,0 +1,4 @@
+ses_f0b14dd06ffeDM9FljoxIBHjNH  Definició de les taules SQL per a variants (etapa 0)   10/10/2026 12:08:59
+ses_f0d0409a1ffew9t7nXWKlHkzCs  PARKOD declinaison      30/09/2026 22:15:28
+
+opencode -s ses_f0b14dd06ffeDM9FljoxIBHjNH

@@ -1,0 +1,16 @@
+USE [parkod]
+GO
+
+SET ANSI_NULLS ON
+GO
+
+SET QUOTED_IDENTIFIER ON
+GO
+
+CREATE TABLE [dbo].[CATEGORIE](
+	[CCATEG] [varchar](2) NULL,
+	[LIBCATEG] [varchar](20) NULL,
+	[CFAM] [varchar](2) NULL
+) ON [PRIMARY]
+GO
+
