@@ -1,6 +1,6 @@
 # Parkod – Project Context
 
-> Actualització funcional: 2026-11-03, acords fins a D367. **Càrrega externa:** parkod.dbo.PARKOD → VARIANTS_PARKOD.dbo.Parkod, història/presència externes, app només lectura. **Conciliació:** còpia → ProductVariant/grups/dades pròpies. Dos `.bat` seqüencials al Planificador; GUI possible durant càrrega, conciliació sense sessions vigents i còpia coherent/disponible/estable. CLIGNE carregada pot diferir de LineCode classificat fins a revisió. 76 signatures de procediment confirmades de disseny, més NormalizeWhitespace interna; adaptacions de formats/balanç encara pendents es distingeixen, no aprovació implícita. Model 14/99/tipus/PK/FK intactes, SQL Server 2017 Express/Windows Server 2019 i original intocable. [Decisions](DECISIONS.md), [model](DATA_MODEL.md) §6.35–6.40. Etapa 0 oberta, cap SQL/codi/dada/font/configuració modificats o proves de domini executades.
+> Actualització funcional: 2026-11-04, acords fins a D379. Nou capítol §23 «Procés de carrega de VARIANTS_PARKOD.parkod»: càrrega externa sempre completa, recuperació global després de fallada, marques només en conciliació. §22.54 concreta tasques de valors absents/finalització, retirats i avís de llista no disponible. D373/cobertura, D369 i contextos 7/6 intactes. Mateixos 76 procediments/signatures/respostes, NormalizeWhitespace separada i model 14/99/tipus/PK/FK sense canvis. SQL Server 2017 Express/Windows Server 2019, etapa 0 oberta. [Decisions](DECISIONS.md), [model](DATA_MODEL.md) §6.35/§6.41; només documentació, cap SQL/codi/dada/font/configuració o prova de domini.
 
 ## 1. Objectiu del projecte
 
@@ -575,7 +575,7 @@ Encara cal definir o validar:
 - Controls SQL i transaccionals de `ProductGroup.PrimaryVariantTypeId`: pertinença als tipus habilitats del mateix grup, obligatorietat segons el nombre de tipus i bloqueig d'exportació/canvis invàlids. El camp i les regles estan aprovats; la FK composta i el seu manteniment són propostes a validar.
 - Materialitzar i provar la via excepcional de BrandCode ja acordada: fora GUI, procediment protegit i identitat SQL administrativa específica, amb impacte/autorització previs, compatibilitat total i auditoria atòmica.
 - Contrastar les quantitats/unitats i casos límit amb dades validades: font actual `code1`/`code2`; no reparar codis o quantitats invàlids. Scripts antics discrepants amb la font real.
-- Contractes fins a D367: 76 signatures confirmades, funció interna i matrius; validacions sense trasllat/correccions/cicle batch a §22.45–22.50. Nova frontera de còpia obliga revalidar formes de context, guards ordinaris i cobertura de balanç, identificats com a pendents, no signatures inventades. DDL/permisos/integracions/proves i contrast complet de totes les etapes pendents; cap avanç a etapa 1.
+- Acords fins a D379: 76 procediments/signatures/respostes/funció/matrius intactes respecte de D373. Càrrega externa sempre completa (§23), conciliació completa o per marques; criteris i avís de llista resolts a §22.54, sense persistència o lector nou aprovat. Cobertura/JSON D373, D369 i contextos locals 7/6 intactes. Parser/comparador/balanç i altres controls/DDL/permisos/integracions/consultes/proves pendents; contrast complet de totes les etapes, cap avanç a etapa 1 o implementació GUI.
 - RDS, confiança interna simplificada, Argon2id en Python, token de 32 bytes i paràmetres comuns confirmats (§22.20); el model no pretén resistir manipulació intencionada. Provar permisos/connexió/login sense exigir servei central. Aplicar comentaris/inventari de dependències SQL Server al futur SQL.
 - Completar l'entorn local ja identificat a DATA_MODEL.md §5.5: VARIANTS_PARKOD existeix sense taules però encara amb configuració local diferent de l'aprovada. Aplicar/provar configuració/model només amb autorització específica, sense intervenir a parkod. Completar evidència dels camps/accessos no transcrits, permisos del futur compte i proves compatibles amb 2017. Pauta nocturna/extraordinària resolta D233; integració carregador, lectures del generador i impacte encara pendents, sense coherència conjunta presumpta ni SNAPSHOT a l'original. Valorar creixement d'auditoria i recursos d'Express.
 - Validar DDL/controls sobre codificacions humanament validades abans de tancar etapa 0. Algoritmes de descoberta/calibratge, fonts externes/IA i GUI són etapes posteriors, no implementacions autoritzades aquí.
@@ -629,7 +629,7 @@ Abans de modificar codi relacionat amb Parkod:
 | `EvaluationAuditEvent` | Decisions i canvis confirmats, append-only sense purga automàtica. | Identitat BIGINT, OperationId, moment/actor, acció/àmbit, JSON originals/resultat/snapshots. |
 | `AppAccount` | Comptes propis administrats a l'app. | Identitat INT, LoginName únic normalitzat CI_AI, hash Argon2id, IsActive/IsAdmin. |
 | `AppSession` | Una sessió per compte i reserva opcional exclusiva de grup. | UUID, compte, hash SHA-256 de token, activitat UTC i reserva marca–categoria–grup. |
-| `SynchronizationStatus` | Última publicació correcta de còpia (global o parcial) i última conciliació completa; no historial. | Fila única 1, dues dates/dos indicadors; cinc camps, sense versions o estat per marca. |
+| `SynchronizationStatus` | Última càrrega completa correcta de còpia (D379) i última conciliació completa; no historial. | Fila única 1, dues dates/dos indicadors; cinc camps, sense versions o estat per marca. |
 
 Definicions aprovades de camps/claus al diccionari DATA_MODEL.md §3; resten controls SQL, procediments i proves. ProductGroup/ProductVariant també tenen risc/IsValidated. Textos nous NVARCHAR, sense canvis a camps/tipus/dades originals; cap taula addicional de versions o snapshots aprovada.
 
@@ -710,7 +710,7 @@ Una associació a un grup incompatible amb el BrandCode informat del tipus, la c
 
 El batch el llança manualment el personal autoritzat o el Planificador de tasques de Windows; l'app no incorpora planificació ni reintents propis. Hi ha **exclusió global amb les sessions d'usuari**: si n'hi ha una d'activa, el batch no arrenca, finalitza amb codi de sortida **0** i deixa al log tècnic constància explícita de «no executat» i del motiu, sense presentar-ho com a conciliació completada. Mentre el batch corre no es permet obrir sessions d'usuari. Si s'ha omès, una execució manual o una futura tasca planificada el tornarà a intentar per mitjans externs. Això no impedeix les exportacions als clients; el control atòmic d'inici batch/inici sessió resta pendent de proves.
 
-**Contracte de còpia D230–D232, frontera D361–D367:** mateixa PK `(CMARQ, CCATEG, CPROD)` i vuit noms/tipus: CMARQ/CCATEG/CPROD NVARCHAR(3/2/3) NOT NULL, CLIGNE NVARCHAR(2) NOT NULL, DESIGN1 NVARCHAR(18) NOT NULL, DESIGN2 NVARCHAR(18) NULL, code1 NVARCHAR(13) NOT NULL, code2 NVARCHAR(1) NULL; SourceIsPresent BIT NOT NULL DEFAULT(1) local i **externament mantingut**. Història acumulada, no DELETE. App només lectura; CLIGNE recent pot diferir de LineCode classificat. Text/French_CI_AS preservats, NOT NULL de code1 no prova quantitat vàlida. Noms/mestres/EAN/preus no s'afegeixen a la còpia; auxiliars autoritzades conservades. Canvis futurs de metadades exigeixen revisió/avís, no truncament. Absències globals/per marques fiables i integritat de producció són responsabilitat externa, no escàner original de l'app.
+**Contracte de còpia D230–D232, frontera D361–D367 actualitzada D379:** mateixa PK `(CMARQ, CCATEG, CPROD)` i vuit noms/tipus: CMARQ/CCATEG/CPROD NVARCHAR(3/2/3) NOT NULL, CLIGNE NVARCHAR(2) NOT NULL, DESIGN1 NVARCHAR(18) NOT NULL, DESIGN2 NVARCHAR(18) NULL, code1 NVARCHAR(13) NOT NULL, code2 NVARCHAR(1) NULL; SourceIsPresent BIT NOT NULL DEFAULT(1) local i **externament mantingut**. Història acumulada, no DELETE. App només lectura; CLIGNE recent pot diferir de LineCode classificat. Text/French_CI_AS preservats, NOT NULL de code1 no prova quantitat vàlida. Noms/mestres/EAN/preus no s'afegeixen a la còpia; auxiliars autoritzades conservades. Canvis futurs de metadades exigeixen revisió/avís, no truncament. Absències fiables amb càrrega global completa i integritat de producció són responsabilitat externa, no escàner original de l'app. Procés reunit a §23.
 
 Per crear el nom inicial modificable del grup, després de numerar-lo, s'utilitza `PARKOD.NOM_MARQUE + '_' + PARKOD.NOM_LIGNE + '_' + CATEGORY.CategoryName + '_' + ProductGroupId`. Marca/línia provenen del SKU creador i categoria de `CATEGORY.IDCategory = PARKOD.CCATEG`. Si falta una fila o denominació (NULL/buit/blancs), el component corresponent passa a CMARQ/CLIGNE/CCATEG; no s'afegeix fallback a BRAND/LINE ni es tria una altra fila/SKU arbitràriament. Un nom absent no rebutja per si sol el SKU. Si el resultat normalitzat supera NVARCHAR(150), s'utilitza `CMARQ_CLIGNE_CCATEG_ProductGroupId`. Només es genera en crear el grup i no se sobreescriu a la sincronització. Fallada d'accés o ambigüitat no equivalen a nom absent. Només es desa el nom de grup resultant, no les denominacions font com a camps addicionals.
 
@@ -821,7 +821,7 @@ El moment de reutilització/alta del catàleg automàtic o manual està concreta
 
 Una única fila tècnica, cinc camps: SynchronizationStatusId TINYINT PK restringit a 1; ParkodLastCompletedAtUtc i VariantsLastCompletedAtUtc DATETIME2(3) NULL; ParkodRefreshSucceeded i VariantsReconciliationSucceeded BIT NOT NULL DEFAULT(0). No versions BIGINT ni estat SQL per marca. Historial d'execucions al log, canvis de dades a auditoria.
 
-- **Senyals externs de còpia:** només camps Parkod, 0 durant càrrega/fallada, 1/data nova després de publicació correcta **global o parcial**. Data de darrera càrrega correcta de còpia, no només completa de producció; data anterior en fallada. No exigir CSV/transferència o implementació d'integritat original pel projecte. Disponibilitat requereix cooperació efectiva del publicador, no un indicador descoordinat.
+- **Senyals externs de còpia, D379:** només camps Parkod, 0 durant càrrega/fallada, 1/data nova únicament després de càrrega **completa verificada i publicada correctament**. Data de darrera càrrega completa correcta de còpia, no recàrrega de producció; data anterior en fallada. D364 parcial substituït, no recuperació per marques que acrediti tota la còpia. No CSV/transferència o implementació d'integritat original exigits al projecte. Disponibilitat requereix cooperació efectiva del publicador, no un indicador descoordinat (§23).
 - **Batch complet:** abans de modificar dades posa indicador variants 0, conservant data anterior. Només amb lectura/processament acabats posa 1 i data nova; errors individuals o retirades suspeses registrats poden permetre èxit 1. Fallada d'infraestructura o lectura incompleta deixa 0. Una omissió no modifica camps variants.
 - **Conciliació per marques:** consulta disponibilitat de còpia, mateix tractament d'admissió/revisió dins l'abast, no canvia SourceIsPresent o camps globals variants. Abast/resultat al log, mutacions pròpies auditades, cap taula per marca.
 - **Omissió programada:** si ambdós indicadors són 1 i data variants posterior a data Parkod, font ja conciliada i batch complet s'omet. Manual explícit pot repetir. Dates suficients segons operativa acordada, sense comptadors de versió.
@@ -899,7 +899,7 @@ Original de l'associació amb grup nou conserva ProductGroupId JSON null; result
 
 La revisió documental de 2026-10-18 contrasta aquest canvi conceptual amb el funcional/model: mateixa identitat de grup/SKU, 14 taules, dues cascades, unitats i codis preservats; ValueKind és l'única columna nova d'aquests darrers acords. Els controls abans atribuïts a Type s'han ajustat, i els JSON no es confonen amb rèpliques físiques.
 
-**Etapa 0 oberta:** fins a D367/76 signatures de disseny, model 14/99 sense canvis físics nous. Validacions sense trasllat, correctors i cicle batch incorporats (§22.45–22.50/model §6.35–6.40). Càrrega externa/CLIGNE actual exigeixen revalidar tots els controls, contextos locals de correcció proposats 7/6 i cobertura final de Complete. DDL/permisos/integracions/comparadors/concurrència/proves humanes i altres contractes no coberts pendents. No reactivar grups o extrapolar altes sense ID; ValueKind sense default/collation/excepció nous. Cap etapa 1–4 implementada/validada.
+**Etapa 0 oberta:** fins a D379/76 procediments de disseny, model 14/99 sense canvis físics o de signatures. Càrrega només completa externa (§23), criteris/avís de llista (§22.54), cobertura/JSON D373 i contextos locals 7/6 resolts en disseny. D369 intacte; proposta de bloqueig de validació SKU–grup per línia discrepant encara sense confirmació final. Resta de mutadors, detalls de consulta/GUI, DDL/permisos/integracions/concurrència/proves humanes pendents. No reactivar grups o extrapolar altes sense ID; ValueKind sense default/collation/excepció nous. Cap etapa 1–4 implementada/validada.
 
 ### 22.18 Catàlegs compartits i altes automàtiques/manuals
 
@@ -1164,7 +1164,7 @@ Cap valor SKU, codi nou o principal modificat pels dos correctors. Tots dos reto
 
 ### 22.38 Interfície App–SQL i abast de les confirmacions
 
-El capítol 8 de DATA_MODEL.md, «Interficie  App - motor SQL», preserva lectura/revisió/confirmació en transaccions curtes, captura interna i resposta post-COMMIT, tres fases/quatre validacions/valor compartit. Inventari de **76 signatures de procediment confirmades de disseny**, NormalizeWhitespace separada. Arguments anteriors preservats; formats/guards afectats per còpia externa explícitament en adaptació §6.40. Signatura no és implementació/signatura digital ni aprovació d'altres circuits. IsActive/G9/R5 i història immutable es mantenen, sense nous camps físics.
+El capítol 8 de DATA_MODEL.md, «Interficie  App - motor SQL», preserva lectura/revisió/confirmació en transaccions curtes, captura interna i resposta post-COMMIT, tres fases/quatre validacions/valor compartit. Inventari de **76 procediments de disseny**, NormalizeWhitespace separada. Únic canvi d'arguments després de D370: JSON obligatori de Complete segons D373; 75 altres signatures i respostes intactes. Altres controls afectats per còpia externa pendents §6.40. Signatura no és implementació/signatura digital ni aprovació d'altres circuits. IsActive/G9/R5/història immutable, sense nous camps físics.
 
 AppSessionId identifica sessió funcional, no transacció/connexió/RDS ni prova d'autenticació per si sol. SessionToken de 32 bytes només en memòria; SQL valida longitud abans de convertir i desa/comprova només SHA-256 a SessionTokenHash. OperationId generat per SQL agrupa auditories d'una operació atòmica, no tota la sessió/batch ni un identificador d'idempotència del client. No secrets als contextos/logs/auditoria; no-op amb OperationId de resposta NULL només on està expressament autoritzat, sense fila d'auditoria amb UUID NULL.
 
@@ -1251,24 +1251,24 @@ La càrrega externa ha canviat CLIGNE de còpia; ProductVariant conserva línia/
 
 En ambdues vies SourceIsPresent intacte també 0, altres validacions/riscs/originals/IDs/valors conservats i rèpliques de grup actualitzades atòmicament. Audit group_membership/update i cada assignació modificada, més create de grup/associacions al nou. **Sense audit parkod_copy dins del corrector**, perquè l'app no l'escriu; no es reescriu auditoria antiga. No codi nou, fase 3 o exportabilitat implícits. Captura interna/post-COMMIT, incertesa D238.
 
-Les signatures/payloads/conjunts van ser confirmats; els contextos originals de vuit/set blocs incloïen SourceParkod original. D363 el retira. Proposta de set/sis blocs locals del model pendent d'aprovació exacta; no implementar l'antic lector ni afirmar que la forma nova ja va ser re-confirmada. Política de confirmacions ordinàries davant desajust de línia i noms automàtics coherents amb l'entrada local a contrastar.
+Les signatures/payloads/conjunts estaven confirmats; els contextos originals de vuit/set blocs incloïen SourceParkod original. D363 el retira: **set/sis blocs locals vigents**, adaptació directa de D343/D346/D363, sense SourceParkod fictici, destí null o ID futur. No cal nova aprovació; la marca anterior de pendent era excessiva i es corregeix amb traçabilitat, no una decisió nova numerada. Mateix SNAPSHOT curt local/formes aprovades, originals històrics intactes. D369 resol la correcció de valor amb desajust (§22.52); resta de mutadors, concurrència i noms automàtics a contrastar.
 
 Crear grup comercial amb molts SKU compatibles segueix disponible a §22.31/model §6.19, amb creador/aprovació per SKU i un OperationId conjunt. Mateixa línia no prova equivalència comercial; aquest corrector d'un únic SKU no limita aquella agrupació conjunta. Trasllat massiu atòmic a grup existent requeriria contracte nou, no aprovat aquí. No excepció de caixes/kit a les restriccions actuals.
 
 ### 22.48 Balanç mínim i història — D348–D352
 
-Història preservada a còpia i variants. No comparar tot l'històric amb només flux recent ni eliminar per quadrar totals. Llegits=Nous+Actualitzats+Intactes+Rebutjats/pendents, categories exclusives, altes només amb COMMIT; la suma no prova lectura completa. SourceIsPresent=0 és absència contrastada externament, no antiguitat; antic SKU encara a font és present. Absències completes globals/per marques i reaparició són contracte extern, mai incremental com a prova de retirada.
+Història preservada a còpia i variants. No comparar tot l'històric amb només flux recent ni eliminar per quadrar totals. Llegits=Nous+Actualitzats+Intactes+Rebutjats/pendents, categories exclusives, altes només amb COMMIT; la suma no prova lectura completa. SourceIsPresent=0 és absència contrastada externament, no antiguitat; antic SKU encara a font és present. Absències globals fiables amb càrrega completa i reaparició són contracte extern (D379), mai incremental com a prova de retirada. La conciliació per marques no determina presència.
 
 Reaparició amb canvi de línia: l'extern publica presència i CLIGNE actual, app manté classificació anterior i deixa pendent tècnic sense nou ID/grup automàtic; última classificació validada pot seguir elegible si resta de controls superats. L'antiga conservació de CLIGNE a còpia i audit del canvi de presència per l'app queden substituïts. Origen global buit amb SKU encara presents no causa retirades massives automàtiques; protecció és externa, sense llindars nous/override automàtic.
 
-**Balanç a revalidar després de frontera externa:** còpia no creix per altes de variants; estable durant conciliació excloent efectivament la càrrega. Variants_final=variants_inicial+Nous es manté. Còpies noves sense variant fan normal la desigualtat inicial; cobertura final quan hi ha rebutjats sense variant pendent, no igualtat imposada a cegues. L'app no pot inferir quantes transicions de presència ha fet l'última càrrega si només rep l'estat actual. Resum/log, no camps/taules/versions nous; model §6.39.6 conserva fórmules anteriors com a històriques, no SQL executable.
+**Balanç vigent D371–D373:** còpia estable durant conciliació, sense créixer per altes de variant; Variants_final=variants_inicial+Nous es manté. Desigualtat inicial normal per noves còpies. Al final, cada SKU de còpia de l'abast té variant o incidència d'admissió individual d'aquella execució; SQL contrasta totes les claus sense variant amb el JSON de tancament (§22.53/model §6.39.6–6.39.7). No igualtat incondicional de totals, DELETE o variants invàlides per quadrar-los. Rebutjats/pendents també inclouen SKU amb variant: no equivalen a la diferència. Transicions de presència no inferides de l'estat actual; continuen externes. Resum/log i dades JSON transitòries, no taules/camps/versions nous o SQL executable.
 
 ### 22.49 Entrada i cicle de conciliació — D353–D359
 
 Model §6.39, signatures completes/inventari §8.8.25. BrandCodesJson SQL NULL=completa, array no buit de marques textuals 3 A–Z/0–9=parcial, zeros preservats/sense duplicats/ordre conjunt; []/buit/JSON null/objecte incorrecte error, mai completa implícita. Marca històrica sense files actuals admesa, cap filtre de país/categoria/línia nou. InvocationKind obligatori manual o scheduled, no deducció Windows; manual repeteix sense omissió per dates, no evita garanties. Scheduled només omet completa segons els dos indicadors/dates acordats; parcial no al dia per dates globals.
 
 - **BeginReconciliation:** sessió SQL tècnica dedicada, no AppSession/token d'usuari. Arguments, sessions caducades/netejades, zero sessions vigents, coordinació exclusiva/disponibilitat de còpia; started o not_run_active_session/not_run_other_batch/not_run_up_to_date. Omissions 0/log NOT RUN/globals intactes; inici complet variants0/data anterior, parcial intacta. No auditoria/OperationId.
-- **CompleteReconciliation:** mateixa connexió/metadades/bloquejos, recompte/lectura/processament complets. Completa1/data nova SQL, parcial no globals. Fila completed+quatre recomptes còpia/variant before/after, captura interna/post-COMMIT, després neteja/allibera. Signatura/columnes confirmades; criteri de cobertura pendent §22.48, no antigues fórmules de còpia escrita.
+- **CompleteReconciliation:** mateixa connexió/metadades/bloquejos, recompte/lectura/processament complets. D373 afegeix UnincorporatedSkuIncidentsJson obligatori abans de BrandCodesJson opcional; SQL comprova conjunt exacte de claus de l'abast sense variant (§22.53). Completa1/data nova SQL, parcial no globals. Resposta completed+quatre recomptes còpia/variant before/after intacta, captura interna/post-COMMIT i després neteja/allibera. Criteri/JSON aprovats, parser/protecció/proves pendents; no antigues fórmules de còpia escrita.
 - **FailReconciliation():** sense arguments, mateix inici/connexió/bloquejos, execució incompleta coneguda i cap treball/transacció en curs. Completa0/data anterior, parcial intacta; cap Undo de COMMIT previs. Una fila ResultCode=failed significa tancament correcte d'execució fallida, backend no zero. Context absent/connexió equivocada/ja tancat és error SQL, no failed fictici/no-op. No audit/UUID. Incert de Complete o SMTP després d'èxit no activa Fail; connexió perduda no es reconstrueix.
 
 SESSION_CONTEXT petit aprovat: tipus llançament/completa-parcial/recomptes inicials de l'abast, no secrets/taula/RunId/transacció global. No guardar JSON MAX llarg en valor de 8 KB. **HASH d'abast descartat**: backend conserva conjunt inicial, SQL valida l'abast rebut i pertinència; sense llista inicial a SQL no afirmar igualtat de conjunts entre crides. SHA-256 del token d'AppSession intacte. Dependència SQL Server 2017 a inventari/comentaris anglesos futurs, no implementació o configuració aplicada.
@@ -1277,10 +1277,183 @@ SESSION_CONTEXT petit aprovat: tipus llançament/completa-parcial/recomptes inic
 
 Càrrega externa: únic origen parkod.dbo.PARKOD, destí còpia acumulativa VARIANTS_PARKOD.dbo.Parkod. No programar carregador/integritat periòdica de producció/SourceSkuOccurrenceCount, CSV/intermediaris o recàrrega prèvia de producció per aquest projecte. App només lectura de còpia/SourceIsPresent/CLIGNE actual, classificació conservada fins revisió. Auxiliars de noms/EAN/CATEGORY/FAMILY preservades, no fonts noves o camps addicionals; original intocable.
 
-SourceIsPresent i dos camps Parkod de SynchronizationStatus externs. Indicador0 durant càrrega/fallada, 1/data nova en publicació correcta global **o parcial**, sense canviar els cinc camps. Data de darrera publicació, no de recàrrega completa original; així no s'omet erròniament una completa programada després d'una parcial externa. App només dos camps variants segons completa/parcial.
+SourceIsPresent i dos camps Parkod de SynchronizationStatus externs. **Actualització D379 del tall D364:** indicador0 durant càrrega/fallada, 1/data nova només després de càrrega completa correcta de còpia; no càrregues parcials o reparació per marques. Data de publicació de còpia, no recàrrega original, cinc camps intactes. App només dos camps variants segons conciliació completa/parcial. Justificació i contracte vigent a §23.
 
 Mateixa coordinació exclou càrrega i conciliació; connexió dedicada durant cada procés, no transacció llarga/locks de taules, cooperació externa obligatòria. **GUI possible durant càrrega**, però controls de context/confirmació estable quan depenguin d'entrada pendent de concretar. Conciliació amb zero sessions vigents i còpia coherent/disponible, no nous logins mentre dura. No veto global de tota la cadena; tall intermedi D366 substituït. Sessió inactiva 30 minuts configurables caduca lògicament sense logout RDS/finestra obligatori; neteja per demanda/no heartbeat, no bloqueja conciliació si caducada.
 
 Dos `.bat` seqüenciats pel Planificador: primer càrrega externa i després conciliació. No nou planificador intern o vigilància de tots els escriptors nocturns legacy; treball extraordinari gestionat manualment, aturada no presumeix rollback o còpia preparada. D91/D116 continuen comprovant sessions de l'app a l'inici, diferent de vigilar activitat de tots els usuaris Windows/producció.
 
 Consolidació 2026-11-03: D01–D330 històrics preservats, D331–D367 incorporats, 76 signatures de disseny/funció separada, 14/99/tipus/PK/FK intactes. No codi/SQL/font/dades/configuració/commit/push. La nova especificació exigeix contrast complet de les etapes: només disseny d'etapa 0, encara oberta. Formats/guards/cobertura identificats com a pendents no es donen per humanament validats pel fet d'estar documentats.
+
+### 22.51 Visibilitat en iniciar sessió: incidències i validacions — D368/D370
+
+En **cada inici de sessió correcte de l'app**, mostrar al tècnic una llista de tasques o problemes pendents, agrupada per categories. No es limita al log tècnic ni només a correccions de línia. Interfície i missatges en francès; categories funcionals confirmades:
+
+| Categoria | Contingut |
+|---|---|
+| Incidències tècniques | Inicialment, SKU amb línia carregada diferent de la línia classificada. Altres incidències només amb detecció i tractament definits; no afegir automàticament qualsevol error de log. |
+| Treballs pendents de validació | Quatre àmbits diferenciats: grups, pertinences SKU–grup, associacions grup–tipus i assignacions SKU–valor. Mostrar-los junts no fusiona decisions ni hereta aprovacions. |
+
+La discrepància de línia es calcula comparant Parkod.CLIGNE amb ProductVariant.LineCode del mateix SKU, identificat pels tres codis. Llista amb identificació del SKU i les dues línies; no font original, nova columna física o flag de pendent. La classificació variant–grup coherent es conserva i la correcció es fa pels circuits ja acordats. Si desapareix la discrepància, no és un pendent actual, però això no demostra per si sol qui l'ha corregida; només l'auditoria real acredita una operació. Un canvi de valor no fa desaparèixer la discrepància.
+
+La llista mostra situació pendent, no crea reserves, validacions o auditoria de lectura ni obliga a resoldre-la tota abans de treballar. Es mantenen controls d'activitat de grup, permisos/reserves, caducitat i revisió actual quan s'entri al circuit corresponent. Sense assignació personal de tasques, noves taules/camps o historial d'estats de tasca pressupostos. Login dos passos i resposta CreateAppSession intactes; no transacció oberta durant presentació/revisió.
+
+Principi d'aparició a cada login i categories **resolts**, no tornar a validar-los. D374–D378 concreten valors absents/finalització/retirats i avís durant càrrega/fallada a §22.54/model §6.41.4–6.41.5. Assignació absent no és candidata, ni fase 2 aprovada sense codi és pendent d'aprovar. Resta concretar consulta/resposta/elegibilitat restant i protecció de lectures; no signatura SQL nova o GUI desenvolupada fora d'etapa.
+
+### 22.52 Corregir un valor encara que hi hagi línia pendent — D369
+
+Es permet corregir un valor d'un ProductVariant dins del seu grup actual **sense exigir abans resoldre la discrepància de línia**. Un desajust CLIGNE/LineCode present al context revisat no bloqueja per si sol el circuit de correcció de valor del model §6.23, manual o amb proposta segons les regles existents. No aprovació separada de la línia per habilitar aquesta correcció.
+
+No es dispensa cap altre control: sessió/permisos/reserva/grup actiu, classificació variant–grup coherent, habilitació/compatibilitat del tipus, valor vàlid/únic, context actual i atomicitat/auditoria. Si el context rellevant canvia durant la revisió, cal tornar a revisar; no és el mateix que una discrepància ja coneguda. Risc/originals/no-op/UUID/resposta continuen segons el contracte de correcció, sense nous paràmetres o estats.
+
+Corregir el valor no canvia LineCode, grup o còpia, no valida la nova línia i **no tanca el pendent de línia**, que continua a incidències mentre difereixin les dues línies. No s'audita una correcció de línia que no s'ha fet. SourceIsPresent extern i elegibilitat d'exportació intactes. No extrapolar aquesta permissió a totes les altres validacions, altes, trasllats o finalitzacions: contrast separat al model §6.40.
+
+**Tall documental D368–D370 — 2026-11-03:** incorporats aquests acords i corregida l'etiqueta de pendent dels contextos locals 7/6 derivats. 76 signatures/funció i model 14/99 intactes. Aquell tall encara deixava cobertura/format de tancament pendents; resolts en disseny per D371–D373 a continuació, no els controls executables/altres consultes/GUI/proves. Etapa 0 oberta, sense SQL/dades/font/configuració, commit o push.
+
+### 22.53 Cobertura individual i JSON de SKU no incorporats — D371–D373
+
+**Criteri final confirmat:** per a cada SKU de la còpia dins de l'abast de conciliació, hi ha ProductVariant o una incidència d'admissió identificada per aquell SKU durant l'execució. Sense variant i sense explicació individual, no es pot declarar completed; no n'hi ha prou que quadrin sumes globals. Les incidències individuals controlades poden permetre completar amb avisos, però no infraestructura/lectura incompletes o resultat incert disfressats de motiu de rebuig. No DELETE, SKU invàlids o rollback de COMMIT anteriors per igualar recomptes.
+
+CompleteReconciliation rep ara **@UnincorporatedSkuIncidentsJson NVARCHAR(MAX), obligatori sense default, abans de @BrandCodesJson opcional**. Set paràmetres totals; cinc recomptes d'entrada, tipus/default d'abast i resposta original de cinc columnes intactes. És un canvi exprés de la signatura D358, no un procediment nou: inventari 76, altres 75 signatures i NormalizeWhitespace preservades.
+
+Array JSON transitori d'una entrada per SKU sense variant; cada objecte conté **exactament quatre propietats obligatòries**:
+
+| Propietat | Contingut |
+|---|---|
+| BrandCode | String de 3 caràcters ASCII A–Z/0–9. |
+| CategoryCode | String de 2 caràcters ASCII A–Z/0–9. |
+| ProductCode | String de 3 caràcters ASCII A–Z/0–9. |
+| Reason | String tècnica amb contingut, emesa en anglès pel backend, sense secrets; no catàleg nou de codis d'error. |
+
+Noms exactes, sense propietats desconegudes/duplicades o claus SKU repetides; ordre irrellevant, zeros preservats i codis sense retall/conversió/majúscules automàtics. Reason no pot ser buit ni contenir només blancs; sense truncament/normalització silenciosos. SQL NULL, JSON null, buit, estructura incorrecta o valor de tipus erroni es rebutgen. **[] explícit si cap SKU de l'abast queda sense variant**, no si falta informació; no extrapolar-ho a BrandCodesJson. Sense ProductVariantId inventat. Forma i exemple canònics al model §6.39.7.
+
+SQL contrasta les claus amb l'estat local final coordinat: existents a la còpia, dins l'abast i sense variant; el conjunt ha de coincidir exactament, sense omissions o sobrants. El backend manté les causes al log d'aquella execució. Conjunt de claus, sumes i Reason no certifiquen per si sols la causa declarada, idioma o lectura/processament complets; controls i responsabilitats del cicle preservats. No font original rellegida o còpia escrita, noves taules/camps/HASH/RunId, JSON MAX en SESSION_CONTEXT o auditoria de tancament.
+
+Un pendent de línia amb variant existent no entra a aquest JSON ni justifica una altra absència. Exemple: 100 còpies/98 variants/5 incidències, amb 2 no incorporats i 3 discrepàncies amb variant, exigeixen 2 entrades JSON, no 5. No és un nou recompte físic/de resposta. La llista inicial GUI D368/D370 no s'amplia automàticament amb aquest payload transitori ni es crea una cua persistent d'incidències.
+
+**Consolidació D371–D373 — 2026-11-03:** criteri, canvi de signatura i estructura transitòria exacta documentats; camps físics/tipus/PK/FK/model 14/99 intactes. Parser/comparador/SQL/permisos/concurrència/proves i altres circuits continuen pendents. No implementació, execució SQL, dades/configuració/font, commit o push; etapa 0 oberta.
+
+### 22.54 Tasques, retirats i disponibilitat de la llista — D374–D378
+
+La llista inicial inclou també **valors encara no assignats** a un SKU per a un tipus aprovat al seu grup, diferenciats de candidates ProductVariantValue existents amb IsValidated=0 (D374). Mostrar una absència no crea la fila ni un valor de catàleg, i no inventa IDs: l'alta manual, si es decideix, continua per §6.24 del model. L'assignació candidata es revisa pel circuit de §6.15, no upsert.
+
+Les associacions ProductGroupVariantType amb IsValidated=1 i ParkodVariantCode NULL també apareixen com a **pendents de finalització**, separades de candidates de fase 2 pendents d'aprovar (D375). No codi automàtic o garantia de finalització immediata: D253–D256 conserven valors requerits, almenys un present amb pertinença validada i principal coherent. Grup amb només retirats no obté codi nou.
+
+**D376 — SKU retirats, SourceIsPresent=0:** tot el que ja existeix i es pot validar pels circuits vigents apareix com a tasca i es valida mitjançant decisió humana ordinària. Inclou pertinença pendent admissible i candidata SKU–valor existent. Tot el que encara manca assignar es conserva absent i **no** es mostra com a tasca pendent d'assignar per aquell SKU. No DELETE, ocultació automàtica de candidates existents o prohibició nova d'actuacions manuals permeses. No validació automàtica en mostrar la llista, ni nous flags/taules/estats de tasca.
+
+**D377 — càrrega en curs:** si obtenir la llista requereix consultar VARIANTS_PARKOD.dbo.Parkod, mostrar un avís explícit de **llista temporalment no disponible**. No llista buida interpretada com a «cap feina» ni resultats parcials presentats com a complets. Confirmat inicialment per càrrega total/parcial, després acotat per D379: només càrregues completes externes admeses (§23).
+
+**D378 — càrrega fallida:** mantenir no disponible la llista que depèn de Parkod fins a nova publicació correcta; amb D379, ha de ser una nova càrrega completa verificada. No afirmar càrrega encara en curs quan ha fallat: indicador0 no distingeix aquests dos casos. Missatges externs en francès; formulacions orientatives durant càrrega coneguda i indisponibilitat respectivament: «La liste des tâches est temporairement indisponible : mise à jour des données Parkod en cours.» / «La liste des tâches est temporairement indisponible : les données Parkod ne sont pas disponibles.»
+
+L'avís no bloqueja login o tota l'app, ni altera CreateAppSession, permisos, reserves, auditoria o contextos dels circuits. La consulta de llista és separada de l'autenticació; operacions independents conserven controls existents. No permissió/bloqueig universal de la resta de mutadors amb còpia, cache persistent, refresc automàtic o lector/signatura nous aprovats. La proposta de bloqueig de validació de pertinença SKU–grup per desajust de línia no va obtenir confirmació final; continua pendent, sense modificar D369. Consulta/resposta exactes, altres criteris, mecanismes concurrents i proves encara per concretar al model §6.40–6.41.
+
+## 23. Procés de carrega de VARIANTS_PARKOD.parkod
+
+### 23.1 Finalitat, noms i responsabilitats
+
+**Capítol documental del procés extern, no especificació d'un carregador a desenvolupar dins del projecte.** Reuneix els acords de càrrega i el contracte d'entrada que consumeix Gestionnaire de Variantes. Nom físic complet de la destinació: **VARIANTS_PARKOD.dbo.Parkod**; el títol n'utilitza la forma abreujada demanada, no un esquema o taula nous.
+
+| Procés | Entrada → sortida | Responsabilitat i abast |
+|---|---|---|
+| Càrrega externa | parkod.dbo.PARKOD → VARIANTS_PARKOD.dbo.Parkod | Externa al projecte; sempre completa, totes les marques (D379). |
+| Conciliació de variants | Còpia Parkod → ProductVariant, grups i dades pròpies autoritzades | App; completa o per marques seleccionades, sense modificar la còpia. |
+| Correcció humana de línia | CLIGNE local revisada → LineCode/classificació | App, circuits aprovats de §22.47/model §6.38; no carregador o relectura de CLIGNE original. |
+
+L'únic origen del flux de càrrega és parkod.dbo.PARKOD. No CSV, exportació/transferència intermèdia, base intermèdia o recàrrega prèvia de producció exigits. Els fitxers de proves són evidències, no passos obligatoris del procés. Noms auxiliars de PARKOD/CATEGORY, navegació FAMILY i consulta EAN conserven els accessos autoritzats del model §5; no es copien com a part d'aquest procés ni s'amplien les fonts.
+
+El carregador és l'únic propietari de les escriptures dels nou camps de la còpia, SourceIsPresent inclòs, i dels dos senyals Parkod de SynchronizationStatus. L'app només llegeix la còpia, no manté presència, no desenvolupa un escàner periòdic de producció i no repara càrregues. El generador Parkod existent és un altre consumidor, no un exportador nou de l'app.
+
+### 23.2 Contracte de dades de la còpia
+
+Només es copien els vuit camps acordats; el novè és local i mantingut externament:
+
+| Camp | Tipus i nul·litat aprovats | Tractament |
+|---|---|---|
+| CMARQ | NVARCHAR(3) NOT NULL | Marca, component de la PK; còpia literal. |
+| CCATEG | NVARCHAR(2) NOT NULL | Categoria, component de la PK; còpia literal. |
+| CPROD | NVARCHAR(3) NOT NULL | Producte, component de la PK; còpia literal. |
+| CLIGNE | NVARCHAR(2) NOT NULL | Última línia carregada de la font; pot diferir de la classificació vigent. |
+| DESIGN1 | NVARCHAR(18) NOT NULL | Denominació original, sense normalització ni truncament. |
+| DESIGN2 | NVARCHAR(18) NULL | Denominació complementària, NULL preservat. |
+| code1 | NVARCHAR(13) NOT NULL | Quantitat original textual, sense conversió o reparació; NOT NULL no acredita quantitat vàlida. |
+| code2 | NVARCHAR(1) NULL | Unitat original textual, NULL preservat. |
+| SourceIsPresent | BIT NOT NULL DEFAULT(1) | Estat de presència determinat exclusivament pel procés extern. |
+
+PK `(CMARQ, CCATEG, CPROD)`. SKU = concatenació textual exacta de 3+2+3 caràcters A–Z/0–9, sense separadors/conversió numèrica, zeros preservats. No és ProductVariantId. CLIGNE no forma part de la FK SKU–còpia; l'app preserva sempre la coherència LineCode entre variant i grup, encara que difereixi de CLIGNE.
+
+French_CI_AS als vuit camps copiats segons el contracte font acceptat; noms, tipus, longituds i nul·litat canònics al model §3.1/§5. No copiar noms de mestres, preus, EAN, país o altres camps. Canvi futur de metadades requereix avís i revisió d'impacte, mai truncament/adaptació silenciosa. code1/code2 es copien literalment: interpretar quantitats/unitats és un tractament separat de l'app, no una conversió durant la càrrega.
+
+### 23.3 Càrrega sempre completa i risc que s'evita — D379
+
+**Tota càrrega externa admesa és completa, per a totes les marques.** Es descarten les càrregues parcials per marques, també com a recuperació després d'una fallada. La selecció de marques es conserva exclusivament per a la conciliació posterior. No nou indicador/estat per marca, versió, HASH o canvi de signatura per substituir aquesta regla.
+
+Motiu confirmat: una càrrega completa pot fallar després d'actualitzar només part de la còpia. Una càrrega posterior reeixida d'una marca no acredita recuperació de la resta; posar llavors ParkodRefreshSucceeded=1 podria donar un **fals senyal de disponibilitat global**. Només una nova càrrega completa verificada i publicada correctament pot tornar a acreditar l'èxit global. D379 substitueix expressament la modalitat parcial de D364, sense esborrar-ne l'historial.
+
+Completa significa abast global de lectura/actualització, **no buidar, esborrar o recrear la taula**, reciclar claus, perdre històric o forçar igualtat entre original/còpia/variants. Tampoc és una garantia automàtica d'atomicitat de tota la càrrega: transaccions i comprovacions externes concretes no es donen per implementades. Llegir totes les marques no basta si hi ha infraestructura incompleta, lectura fallida o publicació no fiable.
+
+### 23.4 Històric, presència, reaparicions i línia
+
+La còpia és acumulativa: referències antigues i actuals conservades, sense DELETE per desaparèixer de l'últim flux. El procés extern estableix SourceIsPresent=1 si el SKU és present i 0 només amb absència contrastada mitjançant lectura global completa i fiable. Antiguitat, rebuig d'admissió a variants, incremental o càrrega fallida no proven retirada. Un SKU observat però rebutjat no es considera desaparegut.
+
+Origen global buit amb SKU encara presents: no retirades massives automàtiques o declaració fictícia d'èxit. Protecció i comprovacions d'integritat/duplicats són responsabilitat externa, no algoritmes nous de l'app. No s'han aprovat llindars, percentatges, override automàtic o SourceSkuOccurrenceCount. La PK de còpia i les FK internes es conserven; no eliminar dades per fer passar els controls.
+
+Una reaparició o actualització publica la CLIGNE actual i presència fiable. **No mou ni desvalida automàticament** ProductVariant, grup, valors o decisions existents, i no crea un segon ID del mateix SKU. CLIGNE és línia d'entrada; ProductVariant.LineCode/ProductGroup.LineCode són classificació vigent fins a revisió humana. El desajust és incidència tècnica calculada, no un flag nou; correccions pels circuits aprovats, sense escriure la còpia. Última classificació validada d'un SKU present pot continuar exportable si supera la resta de controls.
+
+### 23.5 Publicació i SynchronizationStatus
+
+Els cinc camps i tipus de SynchronizationStatus es mantenen; només el procés extern escriu els dos camps Parkod:
+
+| Moment | ParkodRefreshSucceeded | ParkodLastCompletedAtUtc |
+|---|---|---|
+| Abans de modificar la còpia i durant la càrrega completa | 0 | Data de l'última càrrega completa correcta conservada; pot ser NULL si no n'hi ha cap. |
+| Càrrega completa verificada i publicada correctament | 1 | Nova data UTC de final de la càrrega correcta de còpia. |
+| Fallada/interrupció sense publicació correcta | 0 | Data anterior conservada; no avançar-la per un intent incomplet. |
+
+L'èxit no es publica només per haver llançat el procés, arribat a l'últim pas o quadrat recomptes. El procés extern ha de comprovar completesa/coherència i publicar els senyals després de final correcte, abans d'alliberar coordinació. La data és de càrrega de **còpia**, no recàrrega original, generació CSV o conciliació. Un valor 0 no permet distingir tot sol càrrega en curs de fallada; no s'afegeix cap estat físic per distingir-les.
+
+No s'assumeix que una interrupció desfaci els COMMIT previs o restitueixi íntegrament l'estat anterior. Mantenir data antiga no acredita una còpia anterior encara coherent. La recuperació confirmada és nova càrrega completa verificada i publicada correctament, no una reparació parcial que marqui 1. L'app no modifica senyals Parkod per superar aquest problema.
+
+VariantsLastCompletedAtUtc/VariantsReconciliationSucceeded corresponen a la conciliació de l'app, no al carregador. Només conciliació completa els actualitza segons el contracte existent; parcial per marques i omissions els deixen intactes. El carregador no els utilitza per declarar una conciliació que no s'ha executat.
+
+### 23.6 Coordinació i límits transaccionals
+
+Càrrega externa i conciliació s'exclouen mitjançant la mateixa coordinació lògica a VARIANTS_PARKOD: obtenir abans de modificar/llegir, mantenir durant cada procés amb connexió dedicada i publicar l'estat abans d'alliberar. La conciliació comprova disponibilitat després d'obtenir la coordinació. Connexió dedicada **no** significa una transacció global oberta tota l'execució, bloqueig deliberat de taules o locks durant l'edició d'un formulari.
+
+El publicador extern ha de cooperar efectivament. sp_getapplock no obliga escriptors no cooperatius ni coordina automàticament l'original. Noms/modes/recursos/permisos i proves encara pendents; aquest capítol no inventa nous bloquejos o procediments SQL. Perdre connexió no autoritza continuar descoordinat, assumir rollback o marcar còpia preparada.
+
+SNAPSHOT aprovat només a VARIANTS_PARKOD, no a parkod; no coherència conjunta entre bases presumpta, NOLOCK o configuració nova de producció. La lectura font coherent, impacte i cooperació externa s'han d'acreditar sense objectes/permisos nous del projecte a l'original.
+
+### 23.7 Seqüència d'execució i conciliació per marques
+
+Dos `.bat` externament orquestrats pel **Planificador de tasques de Windows**, en seqüència i després de final correcte verificat: primer càrrega completa externa, després conciliació de l'app. Pauta habitual nocturna diària, llançament manual possible segons operativa acordada; sense planificador, reintents o servei central dins de l'app. Excepcions nocturnes gestionades manualment, suspenent/aturant tasques; no vigilància nova de tots els escriptors legacy. El calendari no és prova de coherència.
+
+Conciliació completa o d'una/diverses marques amb BrandCodesJson segons §22.49/model §6.39. Entrada ja carregada i estable, app només dades pròpies; no càrrega parcial dissimulada o relectura original. Incorporació inicial de variants per marques conservada, conciliació completa programada desactivada fins acabar-la, però la còpia continua carregant-se completament. D371–D373 exigeixen cobertura individual només dins de l'abast revisat de conciliació; no igualtat indiscriminada de totals o nou criteri de completesa de font.
+
+La càrrega no crea ProductVariant, grups o aprovacions: una fila de còpia encara sense variant és un estat normal abans de conciliar, també fora de les marques inicialment incorporades. Les incidències d'admissió pròpies, com CPROD dins d'un bloc reservat, corresponen a la conciliació: no justifiquen esborrar la còpia o deduir retirada. Logs/correu urgent agrupat i tractament de SMTP són els de §22.13, no un nou control de producció o canvi dels senyals de càrrega. L'èxit de càrrega tampoc acredita conciliació o classificació comercial acabades.
+
+Sessió d'app vigent, també administrativa: la conciliació no arrenca; durant conciliació no nous logins. Omissió per sessió/altre batch, sortida0/log NOT RUN, no èxit fictici. Una càrrega fallida no es converteix en entrada disponible per conciliar, tampoc seleccionant una marca. L'exclusió GUI–conciliació no s'estén a tota la cadena de càrrega externa.
+
+### 23.8 Operativa d'usuari i llista temporalment no disponible
+
+**GUI permesa durant la càrrega**, D367 intacte. Molts contextos normals necessiten CLIGNE/SourceIsPresent de còpia: incidències de línia i criteris de tasques; revisió de valors, grups/pertinences/associacions; trasllats/creacions/substitucions; correcció tècnica de línia i finalització de fase 3. DESIGN1/DESIGN2/code1/code2 continuen sent dades font consultables, no rèpliques addicionals del model propi. Autenticació/gestió de comptes/sessions o edició manual del nom de grup no obtenen un veto nou per aquesta càrrega.
+
+D377–D378: quan obtenir la llista requereixi consultar Parkod durant càrrega o després d'una fallada, mostrar **llista temporalment no disponible**, no «cap tasca» o resultats parcials donats per complets. Després de fallada, mantenir l'avís fins a nova càrrega completa verificada/publicada (D379). No afirmar «en curs» si només es coneix indicador0. Missatges orientatius en francès, segons situació coneguda:
+
+- Càrrega efectivament en curs: «La liste des tâches est temporairement indisponible : mise à jour des données Parkod en cours.»
+- Fallada/indisponibilitat sense càrrega vigent acreditada: «La liste des tâches est temporairement indisponible : les données Parkod ne sont pas disponibles.»
+
+Avís separat del login, no revocació de sessió, reserva, decisió/auditoria o bloqueig general d'app. No permet confirmar sobre context rellevant canviat: cada lector/mutador conserva controls, amb mecanismes concurrents encara pendents de prova. D369 permet corregir valor amb discrepància ja revisada, però no ignora canvis concurrents. No política universal nova de tots els mutadors, cache persistent, refresc automàtic o signatura nova del lector de tasques.
+
+El generador Parkod existent continua independent: indicadors0 informatius al seu log, no vetos nous. Lectura inicial coherent de variants en SNAPSHOT curt local; lectures originals separades amb protocol pendent. Aquest avís de GUI no altera elegibilitat comercial o crea un exportador nou.
+
+### 23.9 No-intervenció a producció i estat de les garanties
+
+**Cap escriptura, DDL, manteniment, índex, trigger, vista, sinònim, usuari, concessió de permisos o canvi de configuració a parkod per aquest projecte.** Només lectures controlades/autoritzades amb permisos disponibles i impacte verificat, sense prometre impacte nul. Si la integració exigís modificar l'original, cal redissenyar-la. Configuració aprovada de nova base, compatibilitat 140/French_CI_AS/SNAPSHOT ON/RCSI OFF, encara pendent d'autorització d'aplicació; producció SQL Server 2017 Express/Windows Server 2019 intacta. Proves locals de 2019 no autoritzen dependències exclusives de 2019.
+
+L'app no assumeix integritat provada pel sol indicador, nombre de files o horari nocturn. Controls periòdics de producció, identitat/claus, metadades i publicació fiable són contracte extern; integració/permisos/lectura/impacte/coordinació s'han de provar. Càrrega global pot durar més i compartir recursos CPU/memòria/disc: mesurar-ne impacte, sense llindars o límits nous aprovats. Express manté límit de 10 GB de dades per base.
+
+### 23.10 Traçabilitat i pendents
+
+Referències: D230–D233 (contracte/entorn/seqüència), D348/D351–D352 (històric/presència/protecció), D360–D365/D367 (frontera/propietat/coordinació/GUI), D377–D379 (avís/fallada/càrrega sempre completa). El sentit parcial de D364 i de les notes anteriors queda substituït expressament per D379; es conserva l'historial de decisions. Model canònic a DATA_MODEL.md §3.1/§3.14/§5/§6.7/§6.35/§6.41, conciliació §6.39.
+
+Pendents: demostrar integritat/completesa externa i cooperació, permisos dels comptes d'integració, lectura autoritzada/impacte a producció, seqüència efectiva, tractament d'interrupcions i protecció de consultes/confirmacions. No es fixa aquí l'algoritme, DDL, signatura o implementació del carregador extern. L'etapa 0 continua oberta i exigeix contrast complet de les especificacions canviades; etapes 1–4 no implementades ni provades. Consolidació documental de 2026-11-04, no execució SQL, dada/font/configuració canviades, commit o push.
